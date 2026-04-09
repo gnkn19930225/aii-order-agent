@@ -1,13 +1,16 @@
 """
-訂單 Agent - 使用 LLM Tools 進行智能打單
+訂單 Agent - 使用 Gemini Function Calling 進行智能打單
 """
 import json
+import time
 import chromadb
 import ollama
+from google import genai
+from google.genai import types, errors
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from config import (
-    OLLAMA_HOST, OLLAMA_MODEL, EMBEDDING_HOST, EMBEDDING_MODEL,
+    GEMINI_API_KEY, GEMINI_MODEL, EMBEDDING_HOST, EMBEDDING_MODEL,
     TEST_MONGO_URI, TEST_DB, TEST_COLLECTION
 )
 
@@ -15,178 +18,82 @@ from config import (
 # 初始化
 # ============================================================
 
-llm_client = ollama.Client(host=OLLAMA_HOST)
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 embedding_client = ollama.Client(host=EMBEDDING_HOST)
 chroma = chromadb.PersistentClient(path="./vectordb")
 collection = chroma.get_collection("products")
 
 # ============================================================
-# 工具定義
+# Gemini 工具定義
 # ============================================================
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "create_order",
-            "description": "建立訂單。當客戶提供了完整的訂單資訊（至少包含產品和數量）時呼叫此函數。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "customer_name": {
-                        "type": "string",
-                        "description": "客戶名稱"
-                    },
-                    "receiver_name": {
-                        "type": "string",
-                        "description": "收貨人姓名"
-                    },
-                    "delivery_address": {
-                        "type": "string",
-                        "description": "送貨地址"
-                    },
-                    "delivery_date": {
-                        "type": "string",
-                        "description": "送貨日期，格式 YYYY/MM/DD，如果沒指定就填明天"
-                    },
-                    "items": {
-                        "type": "array",
-                        "description": "訂單項目清單",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "product_ref": {
-                                    "type": "string",
-                                    "description": "客戶說的產品名稱（原始輸入）"
-                                },
-                                "product_no": {
-                                    "type": "string",
-                                    "description": "產品編號（從 search_products 結果的 ProductNo 取得，必填）"
-                                },
-                                "product_name": {
-                                    "type": "string",
-                                    "description": "正式產品名稱（從 search_products 結果的 ProductName 取得，必填）"
-                                },
-                                "quantity": {
-                                    "type": "number",
-                                    "description": "數量"
-                                },
-                                "unit": {
-                                    "type": "string",
-                                    "description": "單位（包/箱/瓶/桶等）"
-                                }
-                            },
-                            "required": ["product_no", "product_name", "quantity"]
-                        }
-                    },
-                    "remarks": {
-                        "type": "string",
-                        "description": "備註"
-                    }
-                },
-                "required": ["items"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_products",
-            "description": "搜尋產品。當需要查詢產品資訊或確認產品是否存在時呼叫。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "搜尋關鍵字"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ask_clarification",
-            "description": "向客戶詢問更多資訊。當訂單資訊不完整或有多個選項需要確認時呼叫。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "要問客戶的問題"
-                    },
-                    "options": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "提供給客戶的選項（如果有的話）"
-                    }
-                },
-                "required": ["question"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_order",
-            "description": "修改現有訂單。當客戶要更換產品、修改數量、更改地址或日期時呼叫。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "要修改的訂單編號"
-                    },
-                    "updates": {
-                        "type": "object",
-                        "description": "要更新的欄位",
-                        "properties": {
-                            "customer_name": {"type": "string"},
-                            "receiver_name": {"type": "string"},
-                            "delivery_address": {"type": "string"},
-                            "delivery_date": {"type": "string"},
-                            "remarks": {"type": "string"},
-                            "items": {
-                                "type": "array",
-                                "description": "完整的訂單項目清單（會整個取代）",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "product_ref": {"type": "string"},
-                                        "product_no": {"type": "string"},
-                                        "product_name": {"type": "string"},
-                                        "quantity": {"type": "number"},
-                                        "unit": {"type": "string"}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "required": ["order_id", "updates"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_order",
-            "description": "刪除訂單。當客戶要取消訂單時呼叫。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "要刪除的訂單編號"
-                    }
-                },
-                "required": ["order_id"]
-            }
-        }
-    }
-]
+def _s(type_str, description="", properties=None, required=None, items=None):
+    """快速建立 Gemini Schema"""
+    kw = {"type": type_str.upper(), "description": description}
+    if properties:
+        kw["properties"] = properties
+    if required:
+        kw["required"] = required
+    if items:
+        kw["items"] = items
+    return types.Schema(**kw)
+
+
+_item_schema = _s("object", properties={
+    "product_ref":  _s("string", "客戶說的產品名稱（原始輸入）"),
+    "product_no":   _s("string", "產品編號（從 search_products 結果的 ProductNo 取得，必填）"),
+    "product_name": _s("string", "正式產品名稱（從 search_products 結果的 ProductName 取得，必填）"),
+    "quantity":     _s("number", "數量"),
+    "unit":         _s("string", "單位（包/箱/瓶/桶等）"),
+}, required=["product_no", "product_name", "quantity"])
+
+GEMINI_TOOLS = [types.Tool(function_declarations=[
+    types.FunctionDeclaration(
+        name="search_products",
+        description="搜尋產品。當需要查詢產品資訊或確認產品是否存在時呼叫。",
+        parameters=_s("object", properties={"query": _s("string", "搜尋關鍵字")}, required=["query"])
+    ),
+    types.FunctionDeclaration(
+        name="create_order",
+        description="建立訂單。當客戶提供了完整的訂單資訊（至少包含產品和數量）時呼叫此函數。",
+        parameters=_s("object", properties={
+            "customer_name":    _s("string", "客戶名稱"),
+            "receiver_name":    _s("string", "收貨人姓名"),
+            "delivery_address": _s("string", "送貨地址"),
+            "delivery_date":    _s("string", "送貨日期，格式 YYYY/MM/DD，如果沒指定就填明天"),
+            "items":            _s("array",  "訂單項目清單", items=_item_schema),
+            "remarks":          _s("string", "備註"),
+        }, required=["items"])
+    ),
+    types.FunctionDeclaration(
+        name="ask_clarification",
+        description="向客戶詢問更多資訊。當訂單資訊不完整或有多個選項需要確認時呼叫。",
+        parameters=_s("object", properties={
+            "question": _s("string", "要問客戶的問題"),
+            "options":  _s("array",  "提供給客戶的選項（如果有的話）", items=_s("string")),
+        }, required=["question"])
+    ),
+    types.FunctionDeclaration(
+        name="update_order",
+        description="修改現有訂單。當客戶要更換產品、修改數量、更改地址或日期時呼叫。",
+        parameters=_s("object", properties={
+            "order_id": _s("string", "要修改的訂單編號"),
+            "updates":  _s("object", "要更新的欄位", properties={
+                "customer_name":    _s("string"),
+                "receiver_name":    _s("string"),
+                "delivery_address": _s("string"),
+                "delivery_date":    _s("string"),
+                "remarks":          _s("string"),
+                "items":            _s("array", "完整的訂單項目清單（會整個取代）", items=_item_schema),
+            }),
+        }, required=["order_id", "updates"])
+    ),
+    types.FunctionDeclaration(
+        name="delete_order",
+        description="刪除訂單。當客戶要取消訂單時呼叫。",
+        parameters=_s("object", properties={"order_id": _s("string", "要刪除的訂單編號")}, required=["order_id"])
+    ),
+])]
 
 # ============================================================
 # 工具實作
@@ -390,31 +297,11 @@ def get_tomorrow():
 # Agent 主邏輯
 # ============================================================
 
-def execute_tool(tool_name, arguments):
-    """執行工具"""
-    if tool_name == "search_products":
-        return tool_search_products(arguments.get("query", ""))
-    elif tool_name == "create_order":
-        return tool_create_order(arguments)
-    elif tool_name == "update_order":
-        return tool_update_order(
-            arguments.get("order_id", ""),
-            arguments.get("updates", {})
-        )
-    elif tool_name == "delete_order":
-        return tool_delete_order(arguments.get("order_id", ""))
-    elif tool_name == "ask_clarification":
-        return tool_ask_clarification(
-            arguments.get("question", ""),
-            arguments.get("options")
-        )
-    else:
-        return {"error": f"Unknown tool: {tool_name}"}
-
-
-def chat(messages):
-    """與 LLM 對話"""
-    system_prompt = """你是一個訂單助手。你的任務是協助客戶建立訂單。
+def _build_system_prompt():
+    today = datetime.now().strftime("%Y/%m/%d")
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y/%m/%d")
+    return f"""你是一個訂單助手。你的任務是協助客戶建立訂單。
+今天日期：{today}，明天日期：{tomorrow}。日期請以此為準，不可自行推算。
 
 工作流程：
 1. 當客戶說要訂購產品時，先使用 search_products 搜尋每個產品
@@ -431,16 +318,10 @@ create_order 的 items 欄位格式（非常重要）：
 
 範例：客戶說「雞腿排3包」，搜尋後找到 ProductNo="A001", ProductName="去骨雞腿排"
 則 items 應為：
-{
-  "product_ref": "雞腿排",
-  "product_no": "A001",
-  "product_name": "去骨雞腿排",
-  "quantity": 3,
-  "unit": "包"
-}
+{{"product_ref": "雞腿排", "product_no": "A001", "product_name": "去骨雞腿排", "quantity": 3, "unit": "包"}}
 
 注意事項：
-- 如果客戶沒說日期，預設是明天
+- 如果客戶沒說日期，預設是明天（{tomorrow}）
 - 如果客戶沒說地址或收貨人，可以先建立訂單，這些欄位可以是空的
 - 數量和產品是必要的
 - product_no 和 product_name 一定要從 search_products 的結果取得，不能自己編造
@@ -452,52 +333,94 @@ create_order 的 items 欄位格式（非常重要）：
 - 修改訂單時，記住最近建立的訂單編號（order_id），用於後續修改
 """
 
-    full_messages = [{"role": "system", "content": system_prompt}] + messages
+SYSTEM_PROMPT = _build_system_prompt()
 
-    response = llm_client.chat(
-        model=OLLAMA_MODEL,
-        messages=full_messages,
-        tools=TOOLS
+_chat_session = None
+
+
+def _send_with_retry(content, max_retries=5):
+    """送訊息給 Gemini，遇到 503 自動重試"""
+    for attempt in range(max_retries):
+        try:
+            return _chat_session.send_message(content)
+        except errors.ServerError as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1, 2, 4, 8 秒
+                print(f"[重試 {attempt + 1}/{max_retries}] 伺服器忙碌，等待 {wait} 秒...")
+                time.sleep(wait)
+            else:
+                raise
+
+
+def reset_chat():
+    global _chat_session
+    _chat_session = gemini_client.chats.create(
+        model=GEMINI_MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            tools=GEMINI_TOOLS
+        )
     )
 
-    return response
+
+def execute_tool(tool_name, arguments):
+    """執行工具"""
+    if tool_name == "search_products":
+        return tool_search_products(arguments.get("query", ""))
+    elif tool_name == "create_order":
+        return tool_create_order(dict(arguments))
+    elif tool_name == "update_order":
+        return tool_update_order(
+            arguments.get("order_id", ""),
+            dict(arguments.get("updates", {}))
+        )
+    elif tool_name == "delete_order":
+        return tool_delete_order(arguments.get("order_id", ""))
+    elif tool_name == "ask_clarification":
+        return tool_ask_clarification(
+            arguments.get("question", ""),
+            list(arguments.get("options", []))
+        )
+    else:
+        return {"error": f"Unknown tool: {tool_name}"}
 
 
-def process_response(response, messages):
-    """處理 LLM 回應，執行工具呼叫"""
-    message = response['message']
+def process_response(response):
+    """處理 Gemini 回應，執行工具呼叫並回傳下一個回應"""
+    function_calls = list(response.function_calls or [])
 
-    # 如果有工具呼叫
-    if message.get('tool_calls'):
-        tool_results = []
+    # 備用：從 candidates 直接取（新版 SDK 有時 function_calls 屬性為空）
+    if not function_calls:
+        try:
+            for part in (response.candidates[0].content.parts or []):
+                if part.function_call and part.function_call.name:
+                    function_calls.append(part.function_call)
+        except (AttributeError, IndexError, TypeError):
+            pass
 
-        for tool_call in message['tool_calls']:
-            tool_name = tool_call['function']['name']
-            arguments = tool_call['function']['arguments']
+    if not function_calls:
+        return response, False
 
-            print(f"\n[執行工具] {tool_name}")
-            print(f"[參數] {json.dumps(arguments, ensure_ascii=False, indent=2)}")
+    # 執行所有工具並收集結果
+    result_parts = []
+    for fc in function_calls:
+        tool_name = fc.name
+        arguments = dict(fc.args)
 
-            result = execute_tool(tool_name, arguments)
+        print(f"\n[執行工具] {tool_name}")
+        print(f"[參數] {json.dumps(arguments, ensure_ascii=False, indent=2)}")
 
-            print(f"[結果] {json.dumps(result, ensure_ascii=False, indent=2)}")
+        result = execute_tool(tool_name, arguments)
+        print(f"[結果] {json.dumps(result, ensure_ascii=False, indent=2, default=str)}")
 
-            tool_results.append({
-                "tool_name": tool_name,
-                "result": result
-            })
+        result_parts.append(types.Part.from_function_response(
+            name=tool_name,
+            response={"result": json.loads(json.dumps(result, default=str))}
+        ))
 
-        # 把工具結果加到對話中，讓 LLM 繼續處理
-        messages.append(message)
-        messages.append({
-            "role": "tool",
-            "content": json.dumps(tool_results, ensure_ascii=False)
-        })
-
-        # 再次呼叫 LLM
-        return chat(messages), messages
-
-    return response, messages
+    # 把所有工具結果送回 Gemini（自動重試 503）
+    next_response = _send_with_retry(result_parts)
+    return next_response, True
 
 
 def get_multiline_input():
@@ -524,13 +447,13 @@ def get_multiline_input():
 
 def main():
     """互動式對話"""
+    reset_chat()
+
     print("=" * 60)
-    print("訂單 Agent（使用 LLM Tools）")
+    print("訂單 Agent（使用 Gemini Function Calling）")
     print("輸入 'quit' 離開, 'reset' 重置對話")
     print("可以貼上多行文字，輸入完按 Enter 結束")
     print("=" * 60)
-
-    messages = []
 
     while True:
         user_input = get_multiline_input().strip()
@@ -540,7 +463,7 @@ def main():
             break
 
         if user_input.lower() == 'reset':
-            messages = []
+            reset_chat()
             print("對話已重置")
             continue
 
@@ -549,20 +472,15 @@ def main():
 
         print(f"\n[收到訊息]\n{user_input}\n")
 
-        messages.append({"role": "user", "content": user_input})
+        response = _send_with_retry(user_input)
 
-        # 呼叫 LLM
-        response, messages = process_response(chat(messages), messages)
+        # 多輪工具呼叫直到得到文字回應
+        while True:
+            response, has_tool_calls = process_response(response)
+            if not has_tool_calls:
+                break
 
-        # 可能需要多輪工具呼叫
-        while response['message'].get('tool_calls'):
-            response, messages = process_response(response, messages)
-
-        # 輸出最終回應
-        assistant_message = response['message']['content']
-        messages.append({"role": "assistant", "content": assistant_message})
-
-        print(f"\n助手：{assistant_message}")
+        print(f"\n助手：{response.text or '(no response)'}")
 
 
 if __name__ == "__main__":

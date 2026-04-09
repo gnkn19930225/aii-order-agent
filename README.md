@@ -168,6 +168,33 @@ python order_agent.py
 
 ---
 
+## 已知限制
+
+### 向量搜尋對料號辨識能力弱
+
+`build_index.py` 建立 embedding 的方式是將多個欄位串成一段文字：
+
+```python
+text_to_embed = f"{ProductName} {ProductNo} {ProductCategory} {ProductBrand}"
+```
+
+由於 embedding 是**語意搜尋**，料號（如 `AG001`、`AG002`）是無語意的英數代碼，embedding 模型對這類代碼的辨識能力很差。
+
+**具體問題：** 當同一品牌有多個名稱相似的產品，只有料號不同時，這些產品的向量彼此非常接近，搜尋時無法精確區分。
+
+例如：
+- `雞腿排 AG001 肉品 某品牌`
+- `雞腿排(大) AG002 肉品 某品牌`
+
+這兩筆的向量幾乎一樣，向量搜尋無法依料號做明確區分。
+
+**暫定解法方向（待實作）：**
+- A — 當查詢內容看起來像料號時，直接走 MongoDB 精確查詢，跳過向量搜尋
+- B — 在 `build_index.py` 中將料號重複幾次，增加在 embedding 裡的權重
+- C — 向量搜尋 + 料號精確比對並行，搜尋後再過濾
+
+---
+
 ## 注意事項
 
 - 確保 Ollama 有安裝 embedding 模型（如 `bge-m3`）

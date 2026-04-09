@@ -3,10 +3,12 @@ RAG 產品查詢 - 支援反問確認
 """
 import chromadb
 import ollama
-from config import OLLAMA_HOST, OLLAMA_MODEL, EMBEDDING_HOST, EMBEDDING_MODEL
+from google import genai
+from google.genai import types
+from config import GEMINI_API_KEY, GEMINI_MODEL, EMBEDDING_HOST, EMBEDDING_MODEL
 
 # 初始化
-llm_client = ollama.Client(host=OLLAMA_HOST)           # 遠端 - 對話用
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 embedding_client = ollama.Client(host=EMBEDDING_HOST)  # 本地 - Embedding 用
 chroma = chromadb.PersistentClient(path="./vectordb")
 collection = chroma.get_or_create_collection("products")
@@ -41,13 +43,13 @@ def format_products(results):
             "ProductName": metadata.get("ProductName", ""),
             "ProductCategory": metadata.get("ProductCategory", ""),
             "ProductBrand": metadata.get("ProductBrand", ""),
-            "similarity": 1 - results['distances'][0][i]  # 轉成相似度
+            "similarity": 1 - results['distances'][0][i]
         })
     return products
 
 
 def ask_llm(question, products):
-    """讓 LLM 決定回應方式"""
+    """讓 Gemini 決定回應方式"""
     product_list = "\n".join([
         f"{p['index']}. {p['ProductName']} (編號: {p['ProductNo']}, 品牌: {p['ProductBrand']}, 相似度: {p['similarity']:.2f})"
         for p in products
@@ -65,27 +67,19 @@ def ask_llm(question, products):
 4. 回應要簡潔，用繁體中文
 5. 列出選項時，顯示編號、品名、規格讓客戶方便選擇"""
 
-    response = llm_client.chat(
-        model=OLLAMA_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question}
-        ]
+    response = gemini_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=question,
+        config=types.GenerateContentConfig(system_instruction=system_prompt)
     )
-    return response['message']['content']
+    return response.text
 
 
 def query(user_input):
     """主查詢函數"""
-    # 1. 搜尋相似產品
     results = search_products(user_input, top_k=5)
-
-    # 2. 格式化結果
     products = format_products(results)
-
-    # 3. 讓 LLM 決定如何回應
     response = ask_llm(user_input, products)
-
     return response, products
 
 
@@ -108,11 +102,6 @@ def main():
         response, products = query(user_input)
 
         print(f"\n助手：{response}")
-
-        # Debug: 顯示搜尋到的產品
-        # print("\n[Debug] 搜尋結果：")
-        # for p in products:
-        #     print(f"  - {p['ProductName']} (相似度: {p['similarity']:.2f})")
         print("-------------------------------------------------------------------------\n\n-------------------------------------------------------------------------")
 
 
