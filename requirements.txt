@@ -1,3 +1,9 @@
 pymongo
 chromadb
 ollama
+google-genai
+rapidfuzz
+fastapi
+uvicorn[standard]
+tzdata
+httpx

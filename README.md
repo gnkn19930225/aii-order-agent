@@ -1,20 +1,26 @@
 # RAG 產品查詢 & 訂單 Agent Demo
 
-從 MongoDB 建立向量索引，讓客戶用自然語言查詢產品，並使用 LLM Tools 進行智能打單。
+從 MongoDB 建立向量索引，讓客戶用自然語言查詢產品，並使用 Gemini Function Calling 進行智能打單。
+打單邏輯移植自 dachan.oms 的 AI 打單（OllamaOrderAgent），但不看客戶主檔，直接查整份商品目錄。
 
 ## 檔案結構
 
 ```
-rag-demo/
-├── config.py              ← 設定檔（MongoDB、Ollama 連線）
+aii-order-agent/
+├── settings.py            ← 讀設定（config.py，沒寫的用預設值）
+├── catalog.py             ← 商品查詢：貨號精確比對、品名向量搜尋
+├── agent.py               ← 訂單 Agent 核心（工具、驗證、迴圈控制）
+├── order_agent.py         ← 訂單 Agent 命令列版
+├── app.py                 ← 訂單 Agent 網頁版 + LINE Webhook（FastAPI）
+├── line_bot.py            ← LINE Bot（/callback）
+├── sessions.py            ← 對話狀態（網頁版與 LINE 共用，放記憶體）
+├── static/index.html      ← 網頁聊天介面
 ├── build_index.py         ← 建立向量索引
 ├── rag_query.py           ← RAG 產品查詢（LLM 回應）
-├── vector_search.py       ← 純向量搜尋（不經過 LLM）
+├── vector_search.py       ← 純向量搜尋（調門檻用）
 ├── fuzzy_search.py        ← 純模糊搜尋（不用向量）
-├── order_agent.py         ← 訂單 Agent（使用 LLM Tools）
-├── requirements.txt       ← 套件需求
-├── vectordb/              ← 向量資料庫（自動產生）
-└── 向量資料庫說明.md       ← 向量資料庫運作原理說明
+├── config.example.py      ← 設定範例
+└── vectordb/              ← 向量資料庫（build_index.py 產生）
 ```
 
 ## 使用步驟
@@ -23,32 +29,15 @@ rag-demo/
 
 ```bash
 pip install -r requirements.txt
-pip install rapidfuzz  # fuzzy_search.py 需要
 ```
 
-### 2. 修改設定檔
+### 2. 設定
 
-編輯 `config.py`：
+複製 `config.example.py` 成 `config.py` 並填入，所有設定都寫在這裡。
 
-```python
-# MongoDB 設定
-MONGO_URI = "mongodb://你的IP:27017"
-MONGO_DB = "你的資料庫名稱"
-MONGO_COLLECTION = "你的collection名稱"
-
-# Ollama 設定 - 遠端（對話用）
-OLLAMA_HOST = "http://遠端Ollama的IP:11434"
-OLLAMA_MODEL = "gpt-oss:120b"  # 或其他 LLM
-
-# Ollama 設定 - 本地（Embedding 用）
-EMBEDDING_HOST = "http://localhost:11434"
-EMBEDDING_MODEL = "bge-m3"
-```
-
-### 3. 安裝 Ollama 及模型
+### 3. 安裝 Ollama 及 embedding 模型
 
 ```bash
-# 本地安裝 embedding 模型
 ollama pull bge-m3
 ```
 
@@ -58,63 +47,46 @@ ollama pull bge-m3
 python build_index.py
 ```
 
-這會從 MongoDB 撈出所有 `IsDeleted: false` 的產品，建立向量索引。
+從 MongoDB 撈出所有 `IsDeleted: false` 的產品建立向量索引。**每次都會整個重建**。
+換了 embedding 模型一定要重跑。舊版建的 `vectordb/` 也能直接用，只是沒有單位資料。
 
 ### 5. 開始使用
 
 ```bash
-# RAG 產品查詢（有 LLM 回應）
-python rag_query.py
-
-# 純向量搜尋（不經過 LLM）
-python vector_search.py
-
-# 純模糊搜尋（不用向量）
-python fuzzy_search.py
-
-# 訂單 Agent（使用 LLM Tools）
-python order_agent.py
+python order_agent.py      # 訂單 Agent 命令列版
+uvicorn app:app --reload --port 8000   # 網頁版 http://localhost:8000，LINE Webhook 是 /callback
+python rag_query.py        # RAG 產品查詢
+python vector_search.py    # 純向量搜尋
+python fuzzy_search.py     # 純模糊搜尋
 ```
 
 ---
 
-## 程式說明
+## 訂單 Agent 設計
 
-### rag_query.py - RAG 產品查詢
+核心原則（沿用 OMS）：**模型負責對話與判斷，系統負責提供工具、驗證資料、限制迴圈。**
 
-用向量搜尋找相似產品，再用 LLM 生成回應。
-
-```
-客戶說：我要五穀米
-
-助手：您好！我們有以下五穀米產品：
-1. 五穀米1.8kg (編號: ASA022-2)
-2. 五穀米3kg (編號: ASA022-3)
-```
-
-### vector_search.py - 純向量搜尋
-
-不經過 LLM，直接顯示向量搜尋結果。
-
-### fuzzy_search.py - 純模糊搜尋
-
-用字串模糊比對（Fuse.js 風格），不需要向量資料庫。
-
-### order_agent.py - 訂單 Agent
-
-使用 LLM Tools 進行智能打單，支援多行輸入。
-
-#### 可用的 Tools
+### 工具
 
 | Tool | 用途 |
 |------|------|
-| `search_products` | 搜尋產品（向量搜尋） |
-| `create_order` | 建立訂單 |
-| `update_order` | 修改訂單 |
-| `delete_order` | 刪除訂單 |
-| `ask_clarification` | 詢問客戶補充資訊 |
+| `search_products` | 查商品。貨號走精確比對，品名走向量搜尋 |
+| `create_order` | 建立 / 整張取代這段對話的訂單草稿（目前只存在記憶體） |
+| `cancel_order` | 取消這段對話的訂單草稿 |
 
-#### 訂單結構
+### 防呆機制
+
+| 機制 | 為什麼 |
+|------|------|
+| 規則寫在工具說明與工具回傳，system prompt 只留語氣 | prompt 會被長對話稀釋；工具回傳出現在決策當下，模型繞不過去 |
+| `create_order` 只收 `search_products` 查過的貨號 | 不讓模型幻覺出來的貨號變成訂單 |
+| 建單時用貨號回目錄取權威品名與單位 | 不拿模型給的文字當品名 |
+| 同一個貨號有多個單位而沒指定 → 退回 | 不替客戶猜規格 |
+| 必填欄位由工具檢查，回 `missing_fields` | 只靠 prompt 叮嚀，模型會湊到品項數量就宣稱完成 |
+| 一段對話只有一張草稿，`create_order` 整張取代 | 模型不用記訂單編號，不會改錯單 |
+| 輪數上限、總逾時、空回覆兜底訊息 | 迴圈不會跑掉，客戶不會什麼都收不到 |
+
+### 訂單結構
 
 ```json
 {
@@ -123,35 +95,10 @@ python order_agent.py
   "DeliveryAddress": "送貨地址",
   "DeliveryDate": "2026/02/03",
   "Items": [
-    {
-      "ProductRef": "客戶說的",
-      "ProductNo": "ASE004",
-      "ProductName": "正式品名",
-      "Quantity": 10,
-      "Unit": "箱"
-    }
+    { "ProductRef": "客戶說的", "ProductNo": "ASE004", "ProductName": "正式品名", "Quantity": 10, "Unit": "箱" }
   ],
-  "Remarks": "備註",
-  "Status": "Pending",
-  "CreatedAt": "...",
-  "CreatedBy": "OrderAgent"
+  "Remarks": "備註"
 }
-```
-
-#### 使用範例
-
-```
-客戶（輸入完按 Enter 兩次）：
-協調中心
-臺北市內湖區文湖街20號7F
-冰糖2包 豆腐乳5箱 紹興酒1瓶
-週五前到
-郭威志收
-
-[執行工具] search_products ...
-[執行工具] create_order ...
-
-助手：訂單已建立！訂單編號：698061b01f94dc68638a472b
 ```
 
 ---
@@ -166,43 +113,26 @@ python order_agent.py
 | **速度** | 快 | 較慢（要轉向量） |
 | **資源** | 輕量 | 需要 embedding 模型 |
 
----
+### 貨號不走向量搜尋
 
-## 已知限制
+貨號（如 `AG001`、`AG002`）是無語意的英數代碼，embedding 分不出來。所以：
 
-### 向量搜尋對料號辨識能力弱
-
-`build_index.py` 建立 embedding 的方式是將多個欄位串成一段文字：
-
-```python
-text_to_embed = f"{ProductName} {ProductNo} {ProductCategory} {ProductBrand}"
-```
-
-由於 embedding 是**語意搜尋**，料號（如 `AG001`、`AG002`）是無語意的英數代碼，embedding 模型對這類代碼的辨識能力很差。
-
-**具體問題：** 當同一品牌有多個名稱相似的產品，只有料號不同時，這些產品的向量彼此非常接近，搜尋時無法精確區分。
-
-例如：
-- `雞腿排 AG001 肉品 某品牌`
-- `雞腿排(大) AG002 肉品 某品牌`
-
-這兩筆的向量幾乎一樣，向量搜尋無法依料號做明確區分。
-
-**暫定解法方向（待實作）：**
-- A — 當查詢內容看起來像料號時，直接走 MongoDB 精確查詢，跳過向量搜尋
-- B — 在 `build_index.py` 中將料號重複幾次，增加在 embedding 裡的權重
-- C — 向量搜尋 + 料號精確比對並行，搜尋後再過濾
+- 建索引時 **不把貨號放進 embedding 文字**，只放品名、類別、品牌
+- 查詢時先用貨號精確比對；看起來像貨號但查不到就回「查無」，不退回向量搜尋拿長得像的充數
+- `MIN_SIMILARITY`（預設 0.5）以下的向量結果視為查無，可用 `vector_search.py` 觀察實際分數後調整
 
 ---
 
-## 注意事項
+## LINE Bot（本機 + cloudflared 通道測試）
 
-- 確保 Ollama 有安裝 embedding 模型（如 `bge-m3`）
-- 確保遠端 Ollama 有安裝 LLM 模型（如 `gpt-oss:120b`）
-- MongoDB 資料需要有 `ProductName`、`ProductNo` 欄位
-- 訂單存到 `OMSDB_Test.Orders`（測試用 DB）
-- 換 embedding 模型後需要重建向量資料庫：
-  ```bash
-  rmdir /s /q vectordb
-  python build_index.py
-  ```
+1. LINE Developers 建立 Messaging API channel，把 Channel secret、Channel access token 填進 `config.py`
+2. LINE Official Account Manager →「回應設定」：關閉自動回應訊息、開啟 Webhook
+3. 開兩個終端機：
+   ```bash
+   uvicorn app:app --reload --port 8000
+   cloudflared tunnel --url http://localhost:8000
+   ```
+4. 把 cloudflared 印出的 `https://xxx.trycloudflare.com` 加上 `/callback`，填到 LINE 後台的 Webhook URL，按 Verify
+5. 傳「重新開始」可以清掉對話
+
+注意：快速通道每次重開網址都會變，要重新填 Webhook URL；訂單目前只放記憶體，程式重開就沒了。

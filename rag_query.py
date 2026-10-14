@@ -1,59 +1,20 @@
 """
 RAG 產品查詢 - 支援反問確認
 """
-import chromadb
-import ollama
 from google import genai
 from google.genai import types
-from config import GEMINI_API_KEY, GEMINI_MODEL, EMBEDDING_HOST, EMBEDDING_MODEL
+import catalog
+import settings
 
-# 初始化
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-embedding_client = ollama.Client(host=EMBEDDING_HOST)  # 本地 - Embedding 用
-chroma = chromadb.PersistentClient(path="./vectordb")
-collection = chroma.get_or_create_collection("products")
-
-
-def get_embedding(text):
-    """將文字轉成向量（使用本地 Ollama）"""
-    response = embedding_client.embeddings(
-        model=EMBEDDING_MODEL,
-        prompt=text
-    )
-    return response['embedding']
-
-
-def search_products(query, top_k=5):
-    """搜尋相似產品"""
-    embedding = get_embedding(query)
-    results = collection.query(
-        query_embeddings=[embedding],
-        n_results=top_k
-    )
-    return results
-
-
-def format_products(results):
-    """格式化產品清單"""
-    products = []
-    for i, metadata in enumerate(results['metadatas'][0]):
-        products.append({
-            "index": i + 1,
-            "ProductNo": metadata.get("ProductNo", ""),
-            "ProductName": metadata.get("ProductName", ""),
-            "ProductCategory": metadata.get("ProductCategory", ""),
-            "ProductBrand": metadata.get("ProductBrand", ""),
-            "similarity": 1 - results['distances'][0][i]
-        })
-    return products
+gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 def ask_llm(question, products):
     """讓 Gemini 決定回應方式"""
     product_list = "\n".join([
-        f"{p['index']}. {p['ProductName']} (編號: {p['ProductNo']}, 品牌: {p['ProductBrand']}, 相似度: {p['similarity']:.2f})"
-        for p in products
-    ])
+        f"{i}. {p['ProductName']} (編號: {p['ProductNo']}, 品牌: {p['ProductBrand']}, 相似度: {p.get('similarity', 1.0):.2f})"
+        for i, p in enumerate(products, start=1)
+    ]) or "（查無符合的產品）"
 
     system_prompt = f"""你是一個產品查詢助手。根據客戶的需求和以下產品清單來回應。
 
@@ -63,12 +24,12 @@ def ask_llm(question, products):
 規則：
 1. 如果只有一個產品明顯符合，直接確認該產品
 2. 如果有多個類似產品，列出前幾項讓客戶選擇
-3. 如果沒有符合的產品，告知客戶並建議相近的選項
+3. 如果沒有符合的產品，告知客戶並請他換個說法或提供貨號
 4. 回應要簡潔，用繁體中文
 5. 列出選項時，顯示編號、品名、規格讓客戶方便選擇"""
 
     response = gemini_client.models.generate_content(
-        model=GEMINI_MODEL,
+        model=settings.GEMINI_MODEL,
         contents=question,
         config=types.GenerateContentConfig(system_instruction=system_prompt)
     )
@@ -77,10 +38,8 @@ def ask_llm(question, products):
 
 def query(user_input):
     """主查詢函數"""
-    results = search_products(user_input, top_k=5)
-    products = format_products(results)
-    response = ask_llm(user_input, products)
-    return response, products
+    products = catalog.search(user_input, top_k=5)
+    return ask_llm(user_input, products), products
 
 
 def main():
@@ -99,10 +58,9 @@ def main():
         if not user_input:
             continue
 
-        response, products = query(user_input)
-
+        response, _ = query(user_input)
         print(f"\n助手：{response}")
-        print("-------------------------------------------------------------------------\n\n-------------------------------------------------------------------------")
+        print("-" * 70)
 
 
 if __name__ == "__main__":
