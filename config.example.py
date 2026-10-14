@@ -1,12 +1,18 @@
-# MongoDB 設定
+# 複製成 config.py 後填入（config.py 不會進 git）
+
+# MongoDB - 商品主檔（build_index.py / fuzzy_search.py 用）
 MONGO_URI = "mongodb://user:password@your-mongodb-host:27017/"
 MONGO_DB = "YourDatabase"
 MONGO_COLLECTION = "YourCollection"
+PRODUCT_UNIT_FIELD = "Unit"          # 商品主檔裡單位的欄位名稱，沒有就留著不影響
 
-# Ollama 設定 - 遠端（對話用）
-OLLAMA_HOST = "http://your-ollama-host:11434"
-OLLAMA_MODEL = "gpt-oss:120b"
+# Gemini（對話用）
+GEMINI_API_KEY = "your-gemini-api-key"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 
-# Ollama 設定 - 本地（Embedding 用）
+# Ollama（Embedding 用）
 EMBEDDING_HOST = "http://localhost:11434"
 EMBEDDING_MODEL = "bge-m3"
+
+# 建單前一定要有的欄位：delivery_date / address / receiver_name / customer_name
+REQUIRED_ORDER_FIELDS = ["delivery_date"]

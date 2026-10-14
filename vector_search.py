@@ -1,38 +1,13 @@
 """
-直接向量搜尋 - 不經過 LLM
+直接向量搜尋 - 不經過 LLM，用來調整 MIN_SIMILARITY 門檻
 """
-import chromadb
-import ollama
-from config import EMBEDDING_HOST, EMBEDDING_MODEL
-
-# 初始化
-embedding_client = ollama.Client(host=EMBEDDING_HOST)
-chroma = chromadb.PersistentClient(path="./vectordb")
-collection = chroma.get_collection("products")
-
-
-def get_embedding(text):
-    """將文字轉成向量"""
-    response = embedding_client.embeddings(
-        model=EMBEDDING_MODEL,
-        prompt=text
-    )
-    return response['embedding']
-
-
-def search(query, top_k=5):
-    """搜尋相似產品"""
-    embedding = get_embedding(query)
-    results = collection.query(
-        query_embeddings=[embedding],
-        n_results=top_k
-    )
-    return results
+import catalog
 
 
 def main():
     print("=" * 50)
     print("向量搜尋（不經過 LLM，輸入 'quit' 離開）")
+    print("貨號會走精確比對，其他走向量搜尋")
     print("=" * 50)
 
     while True:
@@ -45,21 +20,21 @@ def main():
         if not query:
             continue
 
-        results = search(query, top_k=5)
+        exact = catalog.get_by_code(query)
+        results = exact or catalog.vector_search(query, top_k=5)
 
-        print(f"\n找到 {len(results['ids'][0])} 筆結果：")
+        print(f"\n找到 {len(results)} 筆結果（{'貨號精確比對' if exact else '向量搜尋'}）：")
         print("-" * 50)
 
-        for i in range(len(results['ids'][0])):
-            metadata = results['metadatas'][0][i]
-            distance = results['distances'][0][i]
-            similarity = 1 - distance  # 轉成相似度
-
-            print(f"{i+1}. {metadata.get('ProductName', '')}")
-            print(f"   編號: {metadata.get('ProductNo', '')}")
-            print(f"   類別: {metadata.get('ProductCategory', '')}")
-            print(f"   品牌: {metadata.get('ProductBrand', '')}")
-            print(f"   相似度: {similarity:.4f}")
+        for i, p in enumerate(results):
+            print(f"{i+1}. {p['ProductName']}")
+            print(f"   編號: {p['ProductNo']}")
+            print(f"   類別: {p['ProductCategory']}")
+            print(f"   品牌: {p['ProductBrand']}")
+            if p['Unit']:
+                print(f"   單位: {p['Unit']}")
+            if 'similarity' in p:
+                print(f"   相似度: {p['similarity']:.4f}")
             print()
 
 
