@@ -1,39 +1,13 @@
 """
 設定讀取
 
-優先順序：環境變數 > config.py > 預設值。
-平常用 config.py 就好；環境變數可以臨時蓋掉某個值，不用改檔案。
+一律從 config.py 讀，沒寫的用這裡的預設值。
 """
-import os
-
-try:
-    import config as _config
-except ImportError:
-    _config = None
+import config
 
 
 def _get(name, default=""):
-    value = os.environ.get(name)
-    if value is not None and value != "":
-        return value
-    if _config is not None and hasattr(_config, name):
-        return getattr(_config, name)
-    return default
-
-
-def _get_int(name, default):
-    return int(_get(name, default))
-
-
-def _get_float(name, default):
-    return float(_get(name, default))
-
-
-def _get_list(name, default):
-    value = _get(name, default)
-    if isinstance(value, (list, tuple)):
-        return [str(v).strip() for v in value if str(v).strip()]
-    return [v.strip() for v in str(value).split(",") if v.strip()]
+    return getattr(config, name, default)
 
 
 # MongoDB - 商品主檔（只有 build_index.py / fuzzy_search.py 會用到）
@@ -58,15 +32,19 @@ EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "bge-m3")
 VECTORDB_PATH = _get("VECTORDB_PATH", "./vectordb")
 VECTOR_COLLECTION = _get("VECTOR_COLLECTION", "products")
 # 低於這個相似度的結果視為「查無此商品」，太低會讓模型拿不相干的商品下單
-MIN_SIMILARITY = _get_float("MIN_SIMILARITY", 0.5)
+MIN_SIMILARITY = _get("MIN_SIMILARITY", 0.5)
 
 # Agent
-AGENT_MAX_ROUNDS = _get_int("AGENT_MAX_ROUNDS", 5)
-AGENT_TOTAL_TIMEOUT_SECONDS = _get_int("AGENT_TOTAL_TIMEOUT_SECONDS", 90)
+AGENT_MAX_ROUNDS = _get("AGENT_MAX_ROUNDS", 5)
+AGENT_TOTAL_TIMEOUT_SECONDS = _get("AGENT_TOTAL_TIMEOUT_SECONDS", 90)
 # 建單前一定要有的欄位：delivery_date / address / receiver_name / customer_name
-REQUIRED_ORDER_FIELDS = _get_list("REQUIRED_ORDER_FIELDS", "delivery_date")
+REQUIRED_ORDER_FIELDS = _get("REQUIRED_ORDER_FIELDS", ["delivery_date"])
 
 # Web
 # 有設定時，網頁要輸入這組通關碼才能用，避免被別人刷 Gemini 額度
 APP_ACCESS_TOKEN = _get("APP_ACCESS_TOKEN")
-SESSION_TTL_MINUTES = _get_int("SESSION_TTL_MINUTES", 120)
+SESSION_TTL_MINUTES = _get("SESSION_TTL_MINUTES", 120)
+
+# LINE Bot（LINE Developers 後台 Messaging API 頁面取得）
+LINE_CHANNEL_SECRET = _get("LINE_CHANNEL_SECRET")
+LINE_CHANNEL_ACCESS_TOKEN = _get("LINE_CHANNEL_ACCESS_TOKEN")

@@ -7,11 +7,13 @@
 
 ```
 aii-order-agent/
-├── settings.py            ← 讀設定（環境變數 > config.py > 預設值）
+├── settings.py            ← 讀設定（config.py，沒寫的用預設值）
 ├── catalog.py             ← 商品查詢：貨號精確比對、品名向量搜尋
 ├── agent.py               ← 訂單 Agent 核心（工具、驗證、迴圈控制）
 ├── order_agent.py         ← 訂單 Agent 命令列版
-├── app.py                 ← 訂單 Agent 網頁版（FastAPI）
+├── app.py                 ← 訂單 Agent 網頁版 + LINE Webhook（FastAPI）
+├── line_bot.py            ← LINE Bot（/callback）
+├── sessions.py            ← 對話狀態（網頁版與 LINE 共用，放記憶體）
 ├── static/index.html      ← 網頁聊天介面
 ├── build_index.py         ← 建立向量索引
 ├── rag_query.py           ← RAG 產品查詢（LLM 回應）
@@ -31,7 +33,7 @@ pip install -r requirements.txt
 
 ### 2. 設定
 
-複製 `config.example.py` 成 `config.py` 並填入。也可以用同名的環境變數臨時蓋掉。
+複製 `config.example.py` 成 `config.py` 並填入，所有設定都寫在這裡。
 
 ### 3. 安裝 Ollama 及 embedding 模型
 
@@ -52,7 +54,7 @@ python build_index.py
 
 ```bash
 python order_agent.py      # 訂單 Agent 命令列版
-uvicorn app:app --reload   # 訂單 Agent 網頁版，打開 http://localhost:8000
+uvicorn app:app --reload --port 8000   # 網頁版 http://localhost:8000，LINE Webhook 是 /callback
 python rag_query.py        # RAG 產品查詢
 python vector_search.py    # 純向量搜尋
 python fuzzy_search.py     # 純模糊搜尋
@@ -119,3 +121,18 @@ python fuzzy_search.py     # 純模糊搜尋
 - 查詢時先用貨號精確比對；看起來像貨號但查不到就回「查無」，不退回向量搜尋拿長得像的充數
 - `MIN_SIMILARITY`（預設 0.5）以下的向量結果視為查無，可用 `vector_search.py` 觀察實際分數後調整
 
+---
+
+## LINE Bot（本機 + cloudflared 通道測試）
+
+1. LINE Developers 建立 Messaging API channel，把 Channel secret、Channel access token 填進 `config.py`
+2. LINE Official Account Manager →「回應設定」：關閉自動回應訊息、開啟 Webhook
+3. 開兩個終端機：
+   ```bash
+   uvicorn app:app --reload --port 8000
+   cloudflared tunnel --url http://localhost:8000
+   ```
+4. 把 cloudflared 印出的 `https://xxx.trycloudflare.com` 加上 `/callback`，填到 LINE 後台的 Webhook URL，按 Verify
+5. 傳「重新開始」可以清掉對話
+
+注意：快速通道每次重開網址都會變，要重新填 Webhook URL；訂單目前只放記憶體，程式重開就沒了。

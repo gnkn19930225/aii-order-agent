@@ -159,7 +159,7 @@ def _send(session, log):
     config = types.GenerateContentConfig(
         system_instruction=_build_system_prompt(),
         tools=TOOLS,
-        temperature=float(settings.GEMINI_TEMPERATURE) if settings.GEMINI_TEMPERATURE else None,
+        temperature=settings.GEMINI_TEMPERATURE,
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         thinking_config=types.ThinkingConfig(thinking_level=settings.GEMINI_THINKING_LEVEL)
         if settings.GEMINI_THINKING_LEVEL else None,

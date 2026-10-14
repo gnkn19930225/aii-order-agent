@@ -23,7 +23,11 @@ def get_embedding(text):
     global _embedding_client
     if _embedding_client is None:
         _embedding_client = ollama.Client(host=settings.EMBEDDING_HOST)
-    return _embedding_client.embeddings(model=settings.EMBEDDING_MODEL, prompt=text)["embedding"]
+    try:
+        return _embedding_client.embeddings(model=settings.EMBEDDING_MODEL, prompt=text)["embedding"]
+    except ollama.ResponseError:
+        # Ollama 剛載入或閒置後卸載模型時，偶爾會中斷連線，重試一次通常就好
+        return _embedding_client.embeddings(model=settings.EMBEDDING_MODEL, prompt=text)["embedding"]
 
 
 def normalize_code(code):

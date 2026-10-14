@@ -6,3 +6,4 @@ rapidfuzz
 fastapi
 uvicorn[standard]
 tzdata
+httpx

@@ -16,3 +16,7 @@ EMBEDDING_MODEL = "bge-m3"
 
 # 建單前一定要有的欄位：delivery_date / address / receiver_name / customer_name
 REQUIRED_ORDER_FIELDS = ["delivery_date"]
+
+# LINE Bot（LINE Developers 後台 > Messaging API 頁面）
+LINE_CHANNEL_SECRET = ""
+LINE_CHANNEL_ACCESS_TOKEN = ""
