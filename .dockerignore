@@ -1,0 +1,11 @@
+# 不打包進映像檔的檔案。config.py 有金鑰，改由 Secret Manager 掛載
+config.py
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+vectordb_*/
+.vscode/
+.idea/
+.claude/

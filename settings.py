@@ -24,9 +24,9 @@ GEMINI_TEMPERATURE = _get("GEMINI_TEMPERATURE", None)
 # 思考深度 minimal / low / medium / high。打單不需要深度推理，low 比較快也比較不會逾時
 GEMINI_THINKING_LEVEL = _get("GEMINI_THINKING_LEVEL", "low")
 
-# Ollama（Embedding 用）。換模型後一定要重建向量資料庫，新舊向量不能混用
-EMBEDDING_HOST = _get("EMBEDDING_HOST", "http://localhost:11434")
-EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "bge-m3")
+# Gemini Embedding。換模型或維度後一定要重建向量資料庫，新舊向量不能混用
+EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "gemini-embedding-001")
+EMBEDDING_DIM = _get("EMBEDDING_DIM", 768)
 
 # 向量資料庫
 VECTORDB_PATH = _get("VECTORDB_PATH", "./vectordb")

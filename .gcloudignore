@@ -1,0 +1,11 @@
+# gcloud run deploy --source 上傳時排除的檔案。沒有這個檔的話 gcloud 會改用 .gitignore，vectordb/ 就不會被上傳
+config.py
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+vectordb_*/
+.vscode/
+.idea/
+.claude/
