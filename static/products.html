@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品總覽</title>
+<style>
+  :root {
+    --bg: #f5f5f4; --panel: #ffffff; --text: #1c1917; --muted: #78716c;
+    --border: #e7e5e4; --accent: #2563eb; --accent-text: #ffffff;
+    --ok: #15803d; --ok-bg: #dcfce7; --no: #b91c1c; --no-bg: #fee2e2; --bar: #93c5fd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --panel: #292524; --text: #f5f5f4; --muted: #a8a29e;
+      --border: #44403c; --accent: #3b82f6; --accent-text: #ffffff;
+      --ok: #86efac; --ok-bg: #14532d; --no: #fca5a5; --no-bg: #7f1d1d; --bar: #1d4ed8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  p.hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; line-height: 1.6; }
+  a { color: var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  input { flex: 1; min-width: 160px; }
+  button { background: var(--accent); color: var(--accent-text); border-color: var(--accent); cursor: pointer; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chip { font-size: 13px; padding: 4px 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td.name { white-space: normal; min-width: 220px; }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  .scroll { max-height: 60vh; overflow: auto; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+  .ok { color: var(--ok); background: var(--ok-bg); }
+  .no { color: var(--no); background: var(--no-bg); }
+  .blocked td { opacity: .55; }
+  .sim { display: flex; align-items: center; gap: 6px; }
+  .sim .track { width: 80px; height: 6px; background: var(--bg); border-radius: 3px; position: relative; }
+  .sim .fill { height: 100%; background: var(--bar); border-radius: 3px; }
+  .sim .mark { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>商品總覽</h1>
+    <a href="/">← 回到訂單助理</a>
+  </header>
+
+  <section class="panel">
+    <h2>搜尋示範</h2>
+    <p class="hint">跟 AI 打單時的查詢規則一樣：輸入貨號走精確比對；其他文字走向量搜尋，
+      相似度低於門檻的會被擋下，AI 看不到。試試用途描述，例如「炸東西用的油」。</p>
+    <form class="row" id="searchForm">
+      <input id="q" placeholder="品名、俗名、用途描述或貨號" autocomplete="off">
+      <button>搜尋</button>
+    </form>
+    <div class="chips" id="examples"></div>
+    <div id="searchResult"></div>
+  </section>
+
+  <section class="panel">
+    <h2>全部商品 <span class="muted" id="count"></span></h2>
+    <div class="row" style="margin-top:8px">
+      <input id="filter" placeholder="篩選貨號或品名（純文字比對）" autocomplete="off">
+      <select id="category"><option value="">全部類別</option></select>
+    </div>
+    <div class="table-wrap scroll">
+      <table>
+        <thead><tr><th>貨號</th><th>品名</th><th>類別</th><th>品牌</th><th>單位</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+  const EXAMPLES = ["炸東西用的油", "滷肉用的醬油", "細砂糖", "麻油", "黑醋", "AS60050", "iPhone"];
+  let token = "";
+  try { token = localStorage.getItem("accessToken") || ""; } catch {}
+  let products = [];
+
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  async function api(path) {
+    for (;;) {
+      const res = await fetch(path, { headers: { "X-Access-Token": token } });
+      if (res.status === 401) {
+        token = prompt("請輸入通關碼") || "";
+        try { localStorage.setItem("accessToken", token); } catch {}
+        if (!token) throw new Error("需要通關碼");
+        continue;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "發生錯誤");
+      return data;
+    }
+  }
+
+  function renderRows() {
+    const text = document.getElementById("filter").value.trim().toLowerCase();
+    const cat = document.getElementById("category").value;
+    const list = products.filter(p =>
+      (!cat || p.ProductCategory === cat) &&
+      (!text || p.ProductNo.toLowerCase().includes(text) || p.ProductName.toLowerCase().includes(text)));
+    document.getElementById("count").textContent = `（${list.length} / ${products.length} 筆）`;
+    document.getElementById("rows").innerHTML = list.map(p =>
+      `<tr><td>${esc(p.ProductNo)}</td><td class="name">${esc(p.ProductName)}</td>` +
+      `<td>${esc(p.ProductCategory)}</td><td>${esc(p.ProductBrand)}</td><td>${esc(p.Unit)}</td></tr>`
+    ).join("") || `<tr><td colspan="5" class="muted">沒有符合的商品</td></tr>`;
+  }
+
+  async function loadProducts() {
+    try {
+      products = (await api("/api/products")).products;
+    } catch (err) {
+      document.getElementById("rows").innerHTML = `<tr><td colspan="5" class="muted">${esc(err.message)}</td></tr>`;
+      return;
+    }
+    const cats = [...new Set(products.map(p => p.ProductCategory).filter(Boolean))].sort();
+    document.getElementById("category").insertAdjacentHTML("beforeend",
+      cats.map(c => `<option>${esc(c)}</option>`).join(""));
+    renderRows();
+  }
+
+  async function search(q) {
+    const box = document.getElementById("searchResult");
+    box.innerHTML = `<p class="hint">搜尋中…</p>`;
+    let data;
+    try { data = await api("/api/search?q=" + encodeURIComponent(q)); }
+    catch (err) { box.innerHTML = `<p class="hint">${esc(err.message)}</p>`; return; }
+
+    if (data.mode === "code") {
+      box.innerHTML = `<p class="hint" style="margin-top:12px">貨號精確比對：${data.results.length ? "找到" : "查無此貨號，不會退回向量搜尋"}</p>` +
+        (data.results.length ? table(data.results, null) : "");
+      return;
+    }
+    const passed = data.results.filter(r => r.passed).length;
+    box.innerHTML = `<p class="hint" style="margin-top:12px">向量搜尋前 10 名，門檻 ${data.threshold}：` +
+      `${passed} 筆會交給 AI，${data.results.length - passed} 筆被擋下</p>` + table(data.results, data.threshold);
+  }
+
+  function table(results, threshold) {
+    return `<div class="table-wrap"><table><thead><tr><th>相似度</th><th>結果</th><th>貨號</th><th>品名</th><th>類別</th></tr></thead><tbody>` +
+      results.map(r => {
+        const pct = Math.max(0, Math.min(1, r.similarity)) * 100;
+        const mark = threshold == null ? "" : `<span class="mark" style="left:${threshold * 100}%"></span>`;
+        return `<tr class="${r.passed ? "" : "blocked"}">` +
+          `<td><span class="sim"><span class="track"><span class="fill" style="width:${pct}%"></span>${mark}</span>${r.similarity.toFixed(2)}</span></td>` +
+          `<td><span class="badge ${r.passed ? "ok" : "no"}">${r.passed ? "交給 AI" : "擋下"}</span></td>` +
+          `<td>${esc(r.ProductNo)}</td><td class="name">${esc(r.ProductName)}</td><td>${esc(r.ProductCategory)}</td></tr>`;
+      }).join("") + `</tbody></table></div>`;
+  }
+
+  document.getElementById("searchForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const q = document.getElementById("q").value.trim();
+    if (q) search(q);
+  });
+  document.getElementById("examples").innerHTML = EXAMPLES.map(x => `<button class="chip" type="button">${esc(x)}</button>`).join("");
+  document.getElementById("examples").addEventListener("click", e => {
+    if (e.target.matches(".chip")) { document.getElementById("q").value = e.target.textContent; search(e.target.textContent); }
+  });
+  document.getElementById("filter").addEventListener("input", renderRows);
+  document.getElementById("category").addEventListener("change", renderRows);
+  loadProducts();
+</script>
+</body>
+</html>

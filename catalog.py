@@ -101,6 +101,12 @@ def _to_product(metadata, similarity=None):
     return product
 
 
+def all_products():
+    """目錄裡所有商品，依貨號排序（商品總覽頁用）"""
+    result = _get_collection().get(include=["metadatas"])
+    return sorted((_to_product(m) for m in result["metadatas"]), key=lambda p: p["ProductNo"])
+
+
 def get_by_code(code):
     """用貨號精確查商品，查不到回空清單（同一個貨號可能有多筆不同單位）"""
     key = normalize_code(code)

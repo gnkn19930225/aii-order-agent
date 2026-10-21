@@ -2,16 +2,17 @@
 訂單 Agent - 網頁版 + LINE Bot
 
 本機執行：uvicorn app:app --reload
-網頁版打開 http://localhost:8000，LINE 的 Webhook 是 /callback
+網頁版打開 http://localhost:8000，商品總覽在 /products，LINE 的 Webhook 是 /callback
 """
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 import agent
+import catalog
 import line_bot
 import sessions
 import settings
@@ -42,9 +43,41 @@ def index():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/products")
+def products_page():
+    return FileResponse(Path(__file__).parent / "static" / "products.html")
+
+
+# 不能用 /healthz：Cloud Run 保留了結尾是 z 的網址，會直接回 404
+@app.get("/health")
+def health():
     return {"ok": True}
+
+
+@app.get("/api/products")
+def list_products(x_access_token: str = Header(default="")):
+    _check_token(x_access_token)
+    return {"products": catalog.all_products()}
+
+
+@app.get("/api/search")
+def search_products(q: str = Query(min_length=1, max_length=100), x_access_token: str = Header(default="")):
+    """
+    跟 agent 的 search_products 用同一套規則，但把門檻以下的結果也回傳，
+    demo 時看得到「為什麼這筆被擋掉」。
+    """
+    _check_token(x_access_token)
+    q = q.strip()
+    exact = catalog.get_by_code(q)
+    if exact or catalog.looks_like_code(q):
+        return {"mode": "code", "threshold": settings.MIN_SIMILARITY,
+                "results": [{**p, "similarity": 1.0, "passed": True} for p in exact]}
+    return {
+        "mode": "vector",
+        "threshold": settings.MIN_SIMILARITY,
+        "results": [{**p, "passed": p["similarity"] >= settings.MIN_SIMILARITY}
+                    for p in catalog.vector_search(q, top_k=10)],
+    }
 
 
 @app.post("/api/chat")

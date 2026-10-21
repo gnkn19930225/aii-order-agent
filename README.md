@@ -14,7 +14,8 @@ aii-order-agent/
 ├── app.py                 ← 訂單 Agent 網頁版 + LINE Webhook（FastAPI）
 ├── line_bot.py            ← LINE Bot（/callback）
 ├── sessions.py            ← 對話狀態（網頁版與 LINE 共用，放記憶體）
-├── static/index.html      ← 網頁聊天介面
+├── static/index.html      ← 網頁聊天介面（/）
+├── static/products.html   ← 商品總覽與搜尋示範（/products）
 ├── build_index.py         ← 建立向量索引
 ├── rag_query.py           ← RAG 產品查詢（LLM 回應）
 ├── vector_search.py       ← 純向量搜尋（調門檻用）
@@ -50,7 +51,7 @@ Gemini 免費額度每分鐘能轉的筆數有限，幾千筆商品要跑幾十�
 
 ```bash
 python order_agent.py      # 訂單 Agent 命令列版
-uvicorn app:app --reload --port 8000   # 網頁版 http://localhost:8000，LINE Webhook 是 /callback
+uvicorn app:app --reload --port 8000   # 網頁版 http://localhost:8000，商品總覽 /products，LINE Webhook 是 /callback
 python rag_query.py        # RAG 產品查詢
 python vector_search.py    # 純向量搜尋
 python fuzzy_search.py     # 純模糊搜尋
@@ -139,9 +140,9 @@ LINE ──► Cloud Run（app.py + vectordb/ 打包在映像檔，config.py 由
 gcloud config set project 你的專案ID
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
 
-# 把整個 config.py 存進 Secret Manager，並允許 Cloud Run 讀取
+# 把整個 config.py 存進 Secret Manager，並只允許 Cloud Run 讀取這一個密鑰
 gcloud secrets create order-agent-config --data-file=config.py
-gcloud projects add-iam-policy-binding 你的專案ID --member=serviceAccount:你的專案編號-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding order-agent-config --member=serviceAccount:你的專案編號-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 
 gcloud run deploy ai-order-agent --source . --region asia-east1 --allow-unauthenticated --max-instances 1 --memory 1Gi --no-cpu-throttling --set-secrets /config/config.py=order-agent-config:latest
 ```
@@ -150,6 +151,8 @@ gcloud run deploy ai-order-agent --source . --region asia-east1 --allow-unauthen
 
 - `--max-instances 1`：對話狀態放記憶體，開多台的話同一個人的訊息可能跑到不同台
 - `--no-cpu-throttling`：LINE 訊息是回 200 之後才在背景處理，沒開的話 Cloud Run 會在回應後把 CPU 降到幾乎為零
+- 專案裡不能有中文檔名的檔案被打包：從 Windows 上傳時檔名編碼會壞掉，部署會出現 `Container import failed`（`.gcloudignore` 已排除 `*.md`）
+- 健康檢查是 `/health`，不能用 `/healthz`：Cloud Run 保留了結尾是 z 的網址
 
 ### 之後更新
 

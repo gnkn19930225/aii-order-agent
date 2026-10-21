@@ -9,3 +9,5 @@ vectordb_*/
 .vscode/
 .idea/
 .claude/
+# 說明文件不需要進映像檔；中文檔名從 Windows 上傳時編碼會壞掉，Cloud Run 會讀不進映像檔
+*.md
