@@ -31,8 +31,9 @@ EMBEDDING_DIM = _get("EMBEDDING_DIM", 768)
 # 向量資料庫
 VECTORDB_PATH = _get("VECTORDB_PATH", "./vectordb")
 VECTOR_COLLECTION = _get("VECTOR_COLLECTION", "products")
-# 低於這個相似度的結果視為「查無此商品」，太低會讓模型拿不相干的商品下單
-MIN_SIMILARITY = _get("MIN_SIMILARITY", 0.5)
+# 低於這個相似度的結果視為「查無此商品」，太低會讓模型拿不相干的商品下單。
+# gemini-embedding-001 實測：不相干的查詢約 0.57～0.63，正確商品約 0.73～0.83。換模型要重新調
+MIN_SIMILARITY = _get("MIN_SIMILARITY", 0.68)
 
 # Agent
 AGENT_MAX_ROUNDS = _get("AGENT_MAX_ROUNDS", 5)

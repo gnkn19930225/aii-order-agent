@@ -115,7 +115,7 @@ python fuzzy_search.py     # 純模糊搜尋
 
 - 建索引時 **不把貨號放進 embedding 文字**，只放品名、類別、品牌
 - 查詢時先用貨號精確比對；看起來像貨號但查不到就回「查無」，不退回向量搜尋拿長得像的充數
-- `MIN_SIMILARITY`（預設 0.5）以下的向量結果視為查無，可用 `vector_search.py` 觀察實際分數後調整
+- `MIN_SIMILARITY`（預設 0.68）以下的向量結果視為查無。這個值跟 embedding 模型綁在一起，換模型要用 `vector_search.py` 觀察實際分數後重調
 
 ---
 
