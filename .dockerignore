@@ -1,0 +1,13 @@
+# 不打包進映像檔的檔案。config.py 有金鑰，改由 Secret Manager 掛載
+config.py
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+vectordb_*/
+.vscode/
+.idea/
+.claude/
+# 說明文件不需要進映像檔；中文檔名從 Windows 上傳時編碼會壞掉，Cloud Run 會讀不進映像檔
+*.md

@@ -10,9 +10,9 @@ PRODUCT_UNIT_FIELD = "Unit"          # 商品主檔裡單位的欄位名稱，�
 GEMINI_API_KEY = "your-gemini-api-key"
 GEMINI_MODEL = "gemini-3.5-flash-lite"
 
-# Ollama（Embedding 用）
-EMBEDDING_HOST = "http://localhost:11434"
-EMBEDDING_MODEL = "bge-m3"
+# Gemini Embedding（向量搜尋用）。換了要重跑 build_index.py
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIM = 768
 
 # 建單前一定要有的欄位：delivery_date / address / receiver_name / customer_name
 REQUIRED_ORDER_FIELDS = ["delivery_date"]

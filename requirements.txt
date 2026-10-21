@@ -1,6 +1,5 @@
 pymongo
 chromadb
-ollama
 google-genai
 rapidfuzz
 fastapi
