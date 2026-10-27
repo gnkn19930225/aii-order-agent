@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>訂單列表</title>
+<style>
+  :root {
+    --bg: #f5f5f4; --panel: #ffffff; --text: #1c1917; --muted: #78716c;
+    --border: #e7e5e4; --accent: #2563eb; --accent-text: #ffffff;
+    --ok: #15803d; --ok-bg: #dcfce7; --no: #b91c1c; --no-bg: #fee2e2; --tag-bg: #e0e7ff; --tag: #3730a3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --panel: #292524; --text: #f5f5f4; --muted: #a8a29e;
+      --border: #44403c; --accent: #3b82f6; --accent-text: #ffffff;
+      --ok: #86efac; --ok-bg: #14532d; --no: #fca5a5; --no-bg: #7f1d1d; --tag-bg: #312e81; --tag: #c7d2fe;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  nav { display: flex; gap: 12px; font-size: 14px; }
+  a { color: var(--accent); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  input { flex: 1; min-width: 180px; }
+  button { cursor: pointer; }
+  button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .summary { color: var(--muted); font-size: 14px; }
+  .list { display: grid; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card.cancelled { opacity: .6; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .head .left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .time { font-weight: 600; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .ok { color: var(--ok); background: var(--ok-bg); }
+  .no { color: var(--no); background: var(--no-bg); }
+  .tag { color: var(--tag); background: var(--tag-bg); }
+  dl { margin: 0 0 8px; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 14px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 4px 6px; border-top: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; white-space: nowrap; }
+  .id { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .empty { color: var(--muted); text-align: center; padding: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>訂單列表</h1>
+    <nav><a href="/">訂單助理</a><a href="/products">商品總覽</a></nav>
+  </header>
+
+  <div class="toolbar">
+    <button data-status="" class="on">全部</button>
+    <button data-status="Pending">已建立</button>
+    <button data-status="Cancelled">已取消</button>
+    <input id="filter" placeholder="篩選客戶、地址、品名或貨號" autocomplete="off">
+    <button id="reload">重新整理</button>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="list" id="list"><div class="empty">載入中…</div></div>
+</main>
+<script>
+  let token = "";
+  try { token = localStorage.getItem("accessToken") || ""; } catch {}
+  let status = "";
+  let orders = [];
+
+  const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = iso => iso ? new Date(iso).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }) : "";
+
+  function source(sessionId) {
+    if (sessionId.startsWith("line-")) return "LINE";
+    if (sessionId.startsWith("cli-")) return "命令列";
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-/.test(sessionId)) return "網頁";
+    return "測試";
+  }
+
+  async function api(path) {
+    for (;;) {
+      const res = await fetch(path, { headers: { "X-Access-Token": token } });
+      if (res.status === 401) {
+        token = prompt("請輸入通關碼") || "";
+        try { localStorage.setItem("accessToken", token); } catch {}
+        if (!token) throw new Error("需要通關碼");
+        continue;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "發生錯誤");
+      return data;
+    }
+  }
+
+  async function load() {
+    const list = document.getElementById("list");
+    list.innerHTML = `<div class="empty">載入中…</div>`;
+    let data;
+    try { data = await api("/api/orders?status=" + status); }
+    catch (err) { list.innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+    if (!data.enabled) {
+      list.innerHTML = `<div class="empty">尚未設定訂單資料庫（config.py 的 ORDER_MONGO_URI），訂單只存在記憶體裡</div>`;
+      return;
+    }
+    orders = data.orders;
+    render();
+  }
+
+  function render() {
+    const text = document.getElementById("filter").value.trim().toLowerCase();
+    const shown = orders.filter(o => !text || [
+      o.CustomerName, o.ReceiverName, o.DeliveryAddress, o.Remarks,
+      ...o.Items.flatMap(i => [i.ProductName, i.ProductNo, i.ProductRef]),
+    ].some(v => String(v || "").toLowerCase().includes(text)));
+
+    document.getElementById("summary").textContent =
+      `共 ${shown.length} 筆` + (shown.length === orders.length ? "" : `（全部 ${orders.length} 筆）`) + "，最多顯示最近 200 筆";
+
+    document.getElementById("list").innerHTML = shown.map(o => {
+      const cancelled = o.Status === "Cancelled";
+      const fields = [["客戶", o.CustomerName], ["收貨人", o.ReceiverName], ["地址", o.DeliveryAddress],
+                      ["到貨日", o.DeliveryDate], ["備註", o.Remarks]].filter(([, v]) => v);
+      return `<article class="card ${cancelled ? "cancelled" : ""}">
+        <div class="head">
+          <div class="left">
+            <span class="time">${esc(fmt(o.CreatedAt))}</span>
+            <span class="badge tag">${source(o.SessionId)}</span>
+            ${o.LastModifiedAt && o.LastModifiedAt !== o.CreatedAt ? `<span class="summary">最後修改 ${esc(fmt(o.LastModifiedAt))}</span>` : ""}
+          </div>
+          <span class="badge ${cancelled ? "no" : "ok"}">${cancelled ? "已取消" : "已建立"}</span>
+        </div>
+        ${fields.length ? `<dl>${fields.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
+        <table>
+          <thead><tr><th>品名</th><th>貨號</th><th>客戶說的</th><th style="text-align:right">數量</th></tr></thead>
+          <tbody>${o.Items.map(i => `<tr><td>${esc(i.ProductName)}</td><td>${esc(i.ProductNo)}</td>` +
+            `<td>${esc(i.ProductRef)}</td><td class="num">${esc(i.Quantity)} ${esc(i.Unit)}</td></tr>`).join("")}</tbody>
+        </table>
+        <div class="id">訂單編號 ${esc(o.OrderId)}</div>
+      </article>`;
+    }).join("") || `<div class="empty">沒有符合的訂單</div>`;
+  }
+
+  document.querySelectorAll("[data-status]").forEach(btn => btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-status]").forEach(b => b.classList.toggle("on", b === btn));
+    status = btn.dataset.status;
+    load();
+  }));
+  document.getElementById("filter").addEventListener("input", render);
+  document.getElementById("reload").addEventListener("click", load);
+  load();
+</script>
+</body>
+</html>

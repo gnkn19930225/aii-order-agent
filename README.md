@@ -14,6 +14,7 @@ aii-order-agent/
 ├── app.py                 ← 訂單 Agent 網頁版 + LINE Webhook（FastAPI）
 ├── line_bot.py            ← LINE Bot（/callback）
 ├── sessions.py            ← 對話狀態（網頁版與 LINE 共用，放記憶體）
+├── order_store.py         ← 訂單寫入 MongoDB Atlas
 ├── static/index.html      ← 網頁聊天介面（/）
 ├── static/products.html   ← 商品總覽與搜尋示範（/products）
 ├── build_index.py         ← 建立向量索引
@@ -68,7 +69,7 @@ python fuzzy_search.py     # 純模糊搜尋
 | Tool | 用途 |
 |------|------|
 | `search_products` | 查商品。貨號走精確比對，品名走向量搜尋 |
-| `create_order` | 建立 / 整張取代這段對話的訂單草稿（目前只存在記憶體） |
+| `create_order` | 建立 / 整張取代這段對話的訂單草稿，寫入 MongoDB Atlas（`ORDER_MONGO_URI`） |
 | `cancel_order` | 取消這段對話的訂單草稿 |
 
 ### 防呆機制
@@ -124,8 +125,12 @@ python fuzzy_search.py     # 純模糊搜尋
 
 ```
 LINE ──► Cloud Run（app.py + vectordb/ 打包在映像檔，config.py 由 Secret Manager 掛載）
-                 └──► Gemini API（對話 + embedding）
+                 ├──► Gemini API（對話 + embedding）
+                 └──► MongoDB Atlas（訂單）
 ```
+
+訂單資料庫用 MongoDB Atlas 免費 M0 叢集。Network Access 要加入 `0.0.0.0/0`：Cloud Run 沒有固定 IP，
+安全性靠資料庫帳號的強密碼與 TLS。連線字串填在 `config.py` 的 `ORDER_MONGO_URI`；留空則訂單只放記憶體。
 
 ### 事前準備
 
@@ -179,4 +184,4 @@ gcloud run deploy ai-order-agent --source . --region asia-east1
 4. 把 cloudflared 印出的 `https://xxx.trycloudflare.com` 加上 `/callback`，填到 LINE 後台的 Webhook URL，按 Verify
 5. 傳「重新開始」可以清掉對話
 
-注意：快速通道每次重開網址都會變，要重新填 Webhook URL；訂單目前只放記憶體，程式重開就沒了。
+注意：快速通道每次重開網址都會變，要重新填 Webhook URL。

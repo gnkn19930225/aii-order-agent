@@ -18,6 +18,7 @@ from google import genai
 from google.genai import types, errors
 
 import catalog
+import order_store
 import settings
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -401,8 +402,11 @@ def _tool_create_order(session, args):
         "Items": items,
         "Remarks": str(args.get("remark", "") or ""),
     }
-    # 訂單先只放在對話狀態裡，程式重開就沒了
-    session.order_id = session.order_id or uuid.uuid4().hex[:12]
+    if order_store.enabled():
+        session.order_id = order_store.save_draft(session.session_id, session.order_id, order)
+    else:
+        # 沒設定資料庫時，訂單只放在對話狀態裡，程式重開就沒了
+        session.order_id = session.order_id or uuid.uuid4().hex[:12]
     session.order = order
 
     return {"ok": True, "order_id": session.order_id, "count": len(items)}
@@ -413,6 +417,8 @@ def _tool_cancel_order(session):
         return {"ok": False, "error": "目前沒有訂單可以取消"}
 
     cancelled = session.order_id
+    if order_store.enabled():
+        order_store.cancel(cancelled)
     session.order_id = ""
     session.order = None
     return {"ok": True, "cancelled_order_id": cancelled}
