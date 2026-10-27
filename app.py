@@ -2,7 +2,7 @@
 訂單 Agent - 網頁版 + LINE Bot
 
 本機執行：uvicorn app:app --reload
-網頁版打開 http://localhost:8000，商品總覽在 /products，LINE 的 Webhook 是 /callback
+網頁版打開 http://localhost:8000，商品總覽在 /products，訂單在 /orders，LINE 的 Webhook 是 /callback
 """
 import logging
 from pathlib import Path
@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 import agent
 import catalog
 import line_bot
+import order_store
 import sessions
 import settings
 
@@ -46,6 +47,20 @@ def index():
 @app.get("/products")
 def products_page():
     return FileResponse(Path(__file__).parent / "static" / "products.html")
+
+
+@app.get("/orders")
+def orders_page():
+    return FileResponse(Path(__file__).parent / "static" / "orders.html")
+
+
+@app.get("/api/orders")
+def list_orders(status: str = Query(default="", pattern="^(|Pending|Cancelled)$"),
+                x_access_token: str = Header(default="")):
+    _check_token(x_access_token)
+    if not order_store.enabled():
+        return {"enabled": False, "orders": []}
+    return {"enabled": True, "orders": order_store.list_orders(status or None)}
 
 
 # 不能用 /healthz：Cloud Run 保留了結尾是 z 的網址，會直接回 404

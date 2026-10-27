@@ -40,6 +40,19 @@ def save_draft(session_id, order_id, order):
     return str(_orders().insert_one(document).inserted_id)
 
 
+def list_orders(status=None, limit=200):
+    """最近的訂單，新的在前（訂單頁用）"""
+    query = {"Status": status} if status else {}
+    orders = []
+    for doc in _orders().find(query).sort("CreatedAt", -1).limit(limit):
+        doc["OrderId"] = str(doc.pop("_id"))
+        for key in ("CreatedAt", "LastModifiedAt"):
+            if doc.get(key):
+                doc[key] = doc[key].replace(tzinfo=timezone.utc).isoformat()
+        orders.append(doc)
+    return orders
+
+
 def cancel(order_id):
     """取消訂單。只改狀態，事後還查得到"""
     result = _orders().update_one(
