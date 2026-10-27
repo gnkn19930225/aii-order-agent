@@ -16,6 +16,11 @@ MONGO_DB = _get("MONGO_DB")
 MONGO_COLLECTION = _get("MONGO_COLLECTION")
 PRODUCT_UNIT_FIELD = _get("PRODUCT_UNIT_FIELD", "Unit")
 
+# MongoDB - 訂單寫入位置（MongoDB Atlas）。沒設定就不寫資料庫，訂單只放記憶體
+ORDER_MONGO_URI = _get("ORDER_MONGO_URI")
+ORDER_DB = _get("ORDER_DB", "aii_order_agent")
+ORDER_COLLECTION = _get("ORDER_COLLECTION", "Orders")
+
 # Gemini
 GEMINI_API_KEY = _get("GEMINI_API_KEY")
 GEMINI_MODEL = _get("GEMINI_MODEL", "gemini-3.5-flash-lite")

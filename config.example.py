@@ -20,3 +20,8 @@ REQUIRED_ORDER_FIELDS = ["delivery_date"]
 # LINE Bot（LINE Developers 後台 > Messaging API 頁面）
 LINE_CHANNEL_SECRET = ""
 LINE_CHANNEL_ACCESS_TOKEN = ""
+
+# MongoDB - 訂單寫入位置（MongoDB Atlas 連線字串）。留空就只放記憶體，程式重開訂單就沒了
+ORDER_MONGO_URI = ""
+ORDER_DB = "aii_order_agent"
+ORDER_COLLECTION = "Orders"
